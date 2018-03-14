@@ -33,7 +33,7 @@ settings.N = N;
 
 opt.integrator='ERK4-CASADI'; % 'ERK4','IRK3, 'ERK4-CASADI'
 opt.hessian='gauss_newton';  % 'gauss_newton' 
-opt.qpsolver='hpipm_pcond'; %'qpoases', 'quadprog', 'hpipm_sparse', 'hpipm_dense','hpipm_pcond'
+opt.qpsolver='qpoases'; %'qpoases', 'quadprog', 'hpipm_sparse', 'hpipm_dense','hpipm_pcond'
 opt.condensing='full';  %'full'
 opt.hotstart='no'; %'yes','no' (only for qpoases)
 opt.shifting='no'; % 'yes','no'
@@ -46,20 +46,13 @@ opt.ref_type=1; % 0-time invariant, 1-time varying(no preview), 2-time varying (
 
 %% Initialize Solvers (only for advanced users)
 
-<<<<<<< HEAD
-[mem] = InitMemory(settings, opt, input);
-=======
 mem = InitMemory(settings, opt, input);
->>>>>>> upstream/master
+
 
 %% Simulation (start your simulation...)
 
 mem.iter = 1; time = 0.0;
-<<<<<<< HEAD
 Tf = 25;  % simulation time
-=======
-Tf = 4;  % simulation time
->>>>>>> upstream/master
 state_sim= [input.x0]';
 controls_MPC = [input.u0]';
 y_sim = [];
