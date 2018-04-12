@@ -16,36 +16,39 @@ function [output, mem] = mpc_nmpcsolver(input, settings, mem, opt)
         tshoot = tic;
         qp_generation(input, settings, mem);
         tSHOOT = toc(tshoot)*1e3; 
-                                            
-        %% ----------  Solving QP
-        switch opt.qpsolver
-            case 'qpoases'
+        
+        switch opt.condensing
+            case 'default_full'
                 tcond=tic;
                 Condensing(mem, settings);
                 tCOND=toc(tcond)*1e3;
-                [tQP,mem] = mpc_qp_solve_qpoases(settings,mem);
-            case 'quadprog'
+            case 'hpipm_full'
                 tcond=tic;
-                Condensing(mem, settings);        
+                condensing_hpipm(mem, settings);
                 tCOND=toc(tcond)*1e3;
-                [tQP,mem] = mpc_qp_solve_quadprog(settings,mem);
-            case 'hpipm_sparse'
+            case 'no'
                 tCOND = 0;
+        end
+                                            
+        %% ----------  Solving QP
+        switch opt.qpsolver
+            case 'qpoases'              
+                [tQP,mem] = mpc_qp_solve_qpoases(settings,mem, opt);
+            case 'qore'
+                [tQP,mem] = mpc_qp_solve_qore(settings,mem, opt);
+            case 'quadprog'
+                [tQP,mem] = mpc_qp_solve_quadprog(settings,mem);
+            case 'hpipm_sparse'               
                 tqp=tic;
                 hpipm_sparse(mem,settings);
                 tQP = toc(tqp)*1e3;
-            case 'hpipm_dense'
-                tcond=tic;
-                Condensing(mem, settings);        
-                tCOND=toc(tcond)*1e3;
-                [tQP, mem] = mpc_qp_solve_hpipm_dense(settings,mem);
-%             case 'hpipm_pcond'
-%                 tCOND = 0;
-%                 tqp=tic;
-%                 hpipm_pcond(mem,settings);
-%                 tQP = toc(tqp)*1e3;
+            case 'hpipm_pcond'               
+                tqp=tic;
+                hpipm_pcond(mem,settings);
+                tQP = toc(tqp)*1e3;
         end
-                
+        
+
         %% ---------- Line search
 
         Line_search(mem, input, settings);
@@ -71,6 +74,7 @@ function [output, mem] = mpc_nmpcsolver(input, settings, mem, opt)
     output.lambda=input.lambda;
     output.mu=input.mu;
     output.muN=input.muN;
+    output.mu_u=input.mu_u;
 
     output.info.iteration_num=i;    
     output.info.kktValue=KKT;

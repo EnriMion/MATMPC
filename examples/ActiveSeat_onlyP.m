@@ -1,3 +1,5 @@
+%% find your path to the original active seat model files
+
 %% initialization parameters
 m = 67;
 sigma_0 = 10^4;
@@ -98,3 +100,4 @@ Ts = 0.005; % simulation sample time
 Ts_st = 0.005; % shooting interval time
 
 clc;
+

@@ -30,10 +30,44 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include <blasfeo_target.h>
+#include <blasfeo_common.h>
+#include <blasfeo_v_aux_ext_dep.h>
+#include <blasfeo_d_aux_ext_dep.h>
+#include <blasfeo_i_aux_ext_dep.h>
+#include <blasfeo_d_aux.h>
+#include <blasfeo_d_blas.h>
+
 #include "hpipm_d_ocp_qp_dim.h"
 #include "hpipm_d_ocp_qp.h"
 #include "hpipm_d_ocp_qp_sol.h"
-#include "hpipm_d_ocp_qp_ipm.h"
+
+#include "hpipm_d_dense_qp_dim.h"
+#include "hpipm_d_dense_qp.h"
+#include "hpipm_d_dense_qp_sol.h"
+#include "hpipm_d_cond.h"
+
+// z = beta*y + alpha*A*x
+void dgemv_n_3l(int m, int n, double alpha, double *A, int lda, double *x, double beta, double *y, double *z)
+	{
+
+	int ii, jj;
+
+	double tmp;
+
+	for(ii=0; ii<m; ii++)
+		z[ii] = beta * y[ii];
+
+	for(jj=0; jj<n; jj++)
+		{
+		tmp = alpha * x[jj];
+		for(ii=0; ii<m; ii++)
+			{
+			z[ii] += A[ii+lda*jj] * tmp;
+			}
+		}
+	
+	}
  
 void mexFunction( int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[])
 	{
@@ -57,29 +91,26 @@ void mexFunction( int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[])
     double *lb = mxGetPr( mxGetField(prhs[0], 0, "lb_du") );
     double *ub = mxGetPr( mxGetField(prhs[0], 0, "ub_du") );
     
-    double *x = mxGetPr( mxGetField(prhs[0], 0, "dx") );
-    double *u = mxGetPr( mxGetField(prhs[0], 0, "du") );
-    double *pi = mxGetPr( mxGetField(prhs[0], 0, "lambda_new") );
-    double *mu_u = mxGetPr( mxGetField(prhs[0], 0, "mu_u_new") );
-    double *mu = mxGetPr( mxGetField(prhs[0], 0, "mu_new") );
-    double *muN = mxGetPr( mxGetField(prhs[0], 0, "muN_new") );
+    double *Hc = mxGetPr( mxGetField(prhs[0], 0, "Hc") );
+    double *gc = mxGetPr( mxGetField(prhs[0], 0, "gc") );
+    double *Cc = mxGetPr( mxGetField(prhs[0], 0, "Cc") );
+    double *lgg = mxGetPr( mxGetField(prhs[0], 0, "lcc") );
+    double *ugg = mxGetPr( mxGetField(prhs[0], 0, "ucc") );
     
+    double *x = mxGetPr( mxGetField(prhs[0], 0, "dx") );
+        
     int nx = mxGetScalar( mxGetField(prhs[1], 0, "nx") );
     int nu = mxGetScalar( mxGetField(prhs[1], 0, "nu") );
     int ng = mxGetScalar( mxGetField(prhs[1], 0, "nc") ); 
     int ngN = mxGetScalar( mxGetField(prhs[1], 0, "ncN") );
     int N = mxGetScalar( mxGetField(prhs[1], 0, "N") ); 
-    
-    double mu0 = mxGetScalar( mxGetField(prhs[0], 0, "mu0") ); 
-    int max_qp_it = mxGetScalar( mxGetField(prhs[0], 0, "max_qp_it") );
-    int pred_corr = mxGetScalar( mxGetField(prhs[0], 0, "pred_corr") );
-    int cond_pred_corr = mxGetScalar( mxGetField(prhs[0], 0, "cond_pred_corr") );
-               	
+                       	
 	int ii, jj;
 
     // number of states for each stage
 	int nx_v[N+1];
-	for(ii=0; ii<=N; ii++)
+    nx_v[0] = 0;
+	for(ii=1; ii<=N; ii++)
 		nx_v[ii] = nx;
 
     // number of controls for each stage
@@ -90,8 +121,7 @@ void mexFunction( int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[])
 
     // always nu
 	int nb_v[N+1];
-    nb_v[0] = nu+nx;
-	for(ii=1; ii<N; ii++)
+	for(ii=0; ii<N; ii++)
 		nb_v[ii] = nu;
     nb_v[N] = 0;
     
@@ -103,8 +133,7 @@ void mexFunction( int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[])
 
     // always zero
 	int nbx_v[N+1];
-    nbx_v[0] = nx;
-	for(ii=1; ii<=N; ii++)
+	for(ii=0; ii<=N; ii++)
         nbx_v[ii] = 0;
 		
 	int ng_v[N+1];
@@ -123,17 +152,18 @@ void mexFunction( int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[])
 		for(jj=0; jj<nb_v[ii]; jj++)
             hidxb[ii][jj] = jj;
 		}
+    
+    double b0[nx];
+	dgemv_n_3l(nx, nx, 1.0, A, nx, x, 1.0, b, b0);
 
-	double lb0[nu+nx];
-    double ub0[nu+nx];
-	for(ii=0; ii<nu; ii++){
-		lb0[ii] = lb[ii];
-        ub0[ii] = ub[ii];
-    }
-    for(ii=0; ii<nx; ii++){
-		lb0[nu+ii] = ds0[ii];
-        ub0[nu+ii] = ds0[ii];
-    }
+	double r0[nu];
+	dgemv_n_3l(nu, nx, 1.0, S, nu, x, 1.0, r, r0);
+    
+    double lg0[ng];
+	dgemv_n_3l(ng, nx, -1.0, C, ng, x, 1.0, lg, lg0);
+
+	double ug0[ng];
+	dgemv_n_3l(ng, nx, -1.0, C, ng, x, 1.0, ug, ug0);
 
 	double *hA[N];
 	double *hB[N];
@@ -149,184 +179,129 @@ void mexFunction( int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[])
 	double *hD[N];
 	double *hlg[N+1];
 	double *hug[N+1];
-	double *hx[N+1];
-	double *hu[N+1];
-	double *hpi[N+1];
-	double *hlam_lb[N+1];
-	double *hlam_ub[N+1];
-	double *hlam_lg[N+1];
-	double *hlam_ug[N+1];
 
-    for(ii=0; ii<N; ii++)
+    for(ii=1; ii<N; ii++)
 		hA[ii] = A+ii*nx*nx;
 
 	for(ii=0; ii<N; ii++)
 		hB[ii] = B+ii*nx*nu;
     
-	for(ii=0; ii<N; ii++)
+    hb[0] = b0;
+	for(ii=1; ii<N; ii++)
 		hb[ii] = b+ii*nx;
 
-	for(ii=0; ii<=N; ii++)
+	for(ii=1; ii<=N; ii++)
 		hQ[ii] = Q+ii*nx*nx;
         
-	for(ii=0; ii<N; ii++)
+	for(ii=1; ii<N; ii++)
 		hS[ii] = S+ii*nx*nu;
 
     for(ii=0; ii<N; ii++)
 		hR[ii] = R+ii*nu*nu;
 
-	for(ii=0; ii<=N; ii++)
+	for(ii=1; ii<=N; ii++)
 		hq[ii] = q+ii*nx;
 	
-	for(ii=0; ii<N; ii++)
+    hr[0] = r0;
+	for(ii=1; ii<N; ii++)
 		hr[ii] = r+ii*nu;
 
-	hlb[0] = lb0;
-	for(ii=1; ii<N; ii++)
+	for(ii=0; ii<N; ii++)
 		hlb[ii] = lb+ii*nu;
 
-	hub[0] = ub0;
-	for(ii=1; ii<N; ii++)
+	for(ii=0; ii<N; ii++)
 		hub[ii] = ub+ii*nu;
 
-	for(ii=0; ii<N; ii++)
+	for(ii=1; ii<N; ii++)
 		hC[ii] = C+ii*ng*nx;
 	hC[N] = CN;
 
 	for(ii=0; ii<N; ii++)
 		hD[ii] = D+ii*ng*nu;
 
-	for(ii=0; ii<=N; ii++)
+    hlg[0] = lg0;
+	for(ii=1; ii<=N; ii++)
 		hlg[ii] = lg+ii*ng;
 
-	for(ii=0; ii<=N; ii++)
+    hug[0] = ug0;
+	for(ii=1; ii<=N; ii++)
 		hug[ii] = ug+ii*ng;
 	
-	for(ii=0; ii<=N; ii++)
-		hx[ii] = x+ii*nx;
-
-	for(ii=0; ii<N; ii++)
-		hu[ii] = u+ii*nu;
-	
-	for(ii=0; ii<=N; ii++)
-		hpi[ii] = pi+ii*nx;
     
-    for(ii=0; ii<=N; ii++)
-        {
-		hlam_lb[ii] = (double *)mxCalloc(nb_v[ii],sizeof(double));
-		hlam_ub[ii] = (double *)mxCalloc(nb_v[ii],sizeof(double));
-		hlam_lg[ii] = (double *)mxCalloc(ng_v[ii],sizeof(double));
-        hlam_ug[ii] = (double *)mxCalloc(ng_v[ii],sizeof(double));
-        }
-    
-	// qp dim
-	int dim_size = d_memsize_ocp_qp_dim(N);
-    void *dim_mem = mxCalloc(dim_size,1);
-
-	struct d_ocp_qp_dim dim;
-	d_create_ocp_qp_dim(N, &dim, dim_mem);
-	d_cvt_int_to_ocp_qp_dim(N, nx_v, nu_v, nbx_v, nbu_v, ng_v, ns_v, &dim);
-    
-//     for(ii=0;ii<=N;ii++){
-//         mexPrintf("%d  %d  %d  %d  %d \n", nx_v[ii], nu_v[ii], nbx_v[ii], nbu_v[ii], ng_v[ii]);
-//     }
-
-	// qp
-	int qp_size = d_memsize_ocp_qp(&dim);
-    void *qp_mem = mxCalloc(qp_size,1);
-	struct d_ocp_qp qp;
-	d_create_ocp_qp(&dim, &qp, qp_mem);
-	d_cvt_colmaj_to_ocp_qp(hA, hB, hb, hQ, hS, hR, hq, hr, hidxb, hlb, hub, hC, hD, hlg, hug, NULL, NULL, NULL, NULL, NULL, &qp);
-
-
-	// qp sol
-	int qp_sol_size = d_memsize_ocp_qp_sol(&dim);
-    void *qp_sol_mem = mxCalloc(qp_sol_size,1);
-	struct d_ocp_qp_sol qp_sol;
-	d_create_ocp_qp_sol(&dim, &qp_sol, qp_sol_mem);
-
-
-	// ipm arg
-	int ipm_arg_size = d_memsize_ocp_qp_ipm_arg(&dim);
-    void *ipm_arg_mem = mxCalloc(ipm_arg_size,1);
-
-	struct d_ocp_qp_ipm_arg arg;
-	d_create_ocp_qp_ipm_arg(&dim, &arg, ipm_arg_mem);
-	d_set_default_ocp_qp_ipm_arg(&arg);
-
-// 	arg.alpha_min = 1e-12;
-	arg.res_g_max = 1e-4;
-	arg.res_b_max = 1e-6;
-	arg.res_d_max = 1e-6;
-	arg.res_m_max = 1e-6;
-	arg.mu0 = mu0;
-	arg.iter_max = max_qp_it;
-	arg.stat_max = 100;
-	arg.pred_corr = pred_corr;
-	arg.cond_pred_corr = cond_pred_corr;
-
-
-	// ipm
-	int ipm_size = d_memsize_ocp_qp_ipm(&dim, &arg);
-    void *ipm_mem = mxCalloc(ipm_size,1);
-
-	struct d_ocp_qp_ipm_workspace workspace;
-	d_create_ocp_qp_ipm(&dim, &arg, &workspace, ipm_mem);
-
-	// call solver
-	int hpipm_return = d_solve_ocp_qp_ipm(&qp, &qp_sol, &arg, &workspace);
-
-	// convert back solution
-	d_cvt_ocp_qp_sol_to_colmaj(&qp_sol, hu, hx, NULL, NULL, hpi, hlam_lb, hlam_ub, hlam_lg, hlam_ug, NULL, NULL);
-
-    
-    // extrac multipliers
-    for(ii=0;ii<N;ii++){       
-        for(jj=0;jj<nu;jj++)
-            mu_u[ii*nu+jj] = hlam_ub[ii][jj] - hlam_lb[ii][jj];
+	// ocp qp dim
+	int ocp_qp_dim_size = d_memsize_ocp_qp_dim(N);
+	void *ocp_qp_dim_mem = mxCalloc(ocp_qp_dim_size,1);
+	struct d_ocp_qp_dim ocp_qp_dim;
+	d_create_ocp_qp_dim(N, &ocp_qp_dim, ocp_qp_dim_mem);
+	d_cvt_int_to_ocp_qp_dim(N, nx_v, nu_v, nbx_v, nbu_v, ng_v, ns_v, &ocp_qp_dim);
         
-        for(jj=0;jj<ng;jj++)
-            mu[ii*ng+jj] = hlam_ug[ii][jj] - hlam_lg[ii][jj];
-    }
-    for(jj=0;jj<ngN;jj++)
-        muN[jj] = hlam_ug[N][jj] - hlam_lg[N][jj]; 
-               
-    // print stats
-    int err = 0;
-    if (workspace.qp_res[0]>arg.res_g_max){
-        mexPrintf("res_g:%5.3e   res_g_max:%5.3e\n", workspace.qp_res[0], arg.res_g_max);
-        err++;
-    }
-    if (workspace.qp_res[1]>arg.res_b_max){
-        mexPrintf("res_b:%5.3e   res_b_max:%5.3e\n", workspace.qp_res[1], arg.res_b_max);
-        err++;
-    }
-    if (workspace.qp_res[2]>arg.res_d_max){
-        mexPrintf("res_g:%5.3e   res_g_max:%5.3e\n", workspace.qp_res[2], arg.res_d_max);
-        err++;
-    }
-    if (workspace.qp_res[3]>arg.res_m_max){
-        mexPrintf("res_g:%5.3e   res_g_max:%5.3e\n", workspace.qp_res[3], arg.res_m_max);
-        err++;
-    }
+    // ocp qp
+	int ocp_qp_size = d_memsize_ocp_qp(&ocp_qp_dim);
+	void *ocp_qp_mem = mxCalloc(ocp_qp_size,1);
+	struct d_ocp_qp ocp_qp;
+	d_create_ocp_qp(&ocp_qp_dim, &ocp_qp, ocp_qp_mem);
+	d_cvt_colmaj_to_ocp_qp(hA, hB, hb, hQ, hS, hR, hq, hr, hidxb, hlb, hub, hC, hD, hlg, hug, NULL, NULL, NULL, NULL, NULL, &ocp_qp);
     
-    if (err > 0)
-        mexErrMsgTxt("QP solver does not converge!");
-      
+    // dense qp dim
+    int dense_qp_dim_size = d_memsize_dense_qp_dim();
+	void *dense_qp_dim_mem = mxCalloc(dense_qp_dim_size,1);
+	struct d_dense_qp_dim dense_qp_dim;
+	d_create_dense_qp_dim(&dense_qp_dim, dense_qp_dim_mem);
+
+	d_compute_qp_dim_ocp2dense(&ocp_qp_dim, &dense_qp_dim);
+	
+    // dense qp
+    int dense_qp_size = d_memsize_dense_qp(&dense_qp_dim);
+	void *dense_qp_mem = mxCalloc(dense_qp_size,1);
+	struct d_dense_qp dense_qp;
+	d_create_dense_qp(&dense_qp_dim, &dense_qp, dense_qp_mem);	
+    
+    // condensing arg
+    int cond_arg_size = d_memsize_cond_qp_ocp2dense_arg();
+	void *cond_arg_mem = mxCalloc(cond_arg_size,1);
+	struct d_cond_qp_ocp2dense_arg cond_arg;
+	d_create_cond_qp_ocp2dense_arg(&cond_arg, cond_arg_mem);
+	d_set_default_cond_qp_ocp2dense_arg(&cond_arg);
+    
+    // condensing workspace   
+    int cond_size = d_memsize_cond_qp_ocp2dense(&ocp_qp_dim, &cond_arg);
+	void *cond_mem = mxCalloc(cond_size,1);
+	struct d_cond_qp_ocp2dense_workspace cond_ws;
+	d_create_cond_qp_ocp2dense(&ocp_qp_dim, &cond_arg, &cond_ws, cond_mem);
+        
+    // call condensing
+    d_cond_qp_ocp2dense(&ocp_qp, &dense_qp, &cond_arg, &cond_ws); 
+        
+    // fill in the upper triangular of H in dense_qp
+    blasfeo_dtrtr_l(dense_qp_dim.nv, dense_qp.Hv, 0, 0, dense_qp.Hv, 0, 0);
+        
+//     int nvc = dense_qp_dim.nv;
+// 	int nec = dense_qp_dim.ne;
+// 	int nbc = dense_qp_dim.nb;
+// 	int ngc = dense_qp_dim.ng;
+// 	int nsc = dense_qp_dim.ns;
+
+// 	printf("\nnv = %d, ne = %d, nb = %d, ng = %d, ns = %d\n\n", nvc, nec, nbc, ngc, nsc);
+    
+    // convert
+    int idxb[dense_qp_dim.nb];
+    double lbb[dense_qp_dim.nb];
+    double ubb[dense_qp_dim.nb];
+    
+    d_cvt_dense_qp_to_colmaj(&dense_qp, Hc, gc, NULL, NULL, idxb, lbb, ubb, Cc, lgg, ugg, NULL, NULL, NULL, NULL, NULL);
+    
+    
     // Free memory
+
 	for(ii=0;ii<=N;ii++){
         mxFree(hidxb[ii]);
-        mxFree(hlam_lb[ii]);
-        mxFree(hlam_ub[ii]);
-        mxFree(hlam_lg[ii]);
-        mxFree(hlam_ug[ii]);
     }
     
-	mxFree(dim_mem);
-	mxFree(qp_mem);
-	mxFree(qp_sol_mem);
-	mxFree(ipm_arg_mem);
-	mxFree(ipm_mem);
-
+	mxFree(ocp_qp_dim_mem);
+	mxFree(dense_qp_dim_mem);
+    mxFree(ocp_qp_mem);
+    mxFree(dense_qp_mem);
+    mxFree(cond_arg_mem);
+    mxFree(cond_mem);
 	}
 

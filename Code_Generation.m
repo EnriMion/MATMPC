@@ -18,7 +18,7 @@ mui=SX.sym('mui',nc,1);                  % the i th multiplier for inequality co
 muN=SX.sym('muN',ncN,1);                 % the N th multiplier for inequality constraints
 
 %% Explicit Runge-Kutta 4 Integrator for simulation
-s  = 1; % No. of integration steps per sample interval
+s  = 2; % No. of integration steps per sample interval
 DT = Ts/s;
 f  = Function('f', {states,controls,params}, {x_dot},{'states','controls','params'},{'xdot'});
 X=states;
@@ -34,7 +34,7 @@ end
 Simulate_system = Function('Simulate_system', {states,controls,params}, {X}, {'states','controls','params'}, {'xf'});
 
 %% Integrator for multiple shooting
-s  = 1; % No. of integration steps per shooting interval
+s  = 2; % No. of integration steps per shooting interval
 DT = Ts_st/s;
 f_fun  = Function('f_fun', {states,controls,params}, {SX.zeros(nx,1)+x_dot},{'states','controls','params'},{'xdot'});
 
@@ -121,6 +121,8 @@ end
 adj_fun = Function('adj_fun',{states,controls,params,refs,Q,lambdai,mui},{dobj, adj_dG, adj_dB});
 adjN_fun = Function('adjN_fun',{states,params,refN, QN, muN},{dobjN, adj_dBN});
 
+adj_dG_fun = Function('adj_dG_fun',{states,controls,params,refs,Q,lambdai},{dobj, adj_dG});
+
 %% Code generation and Compile
 
 generate=input('Would you like to generate the source code?(y/n)','s');
@@ -164,6 +166,8 @@ if strcmp(generate,'y')
         P.add(CN_fun);
         P.add(adj_fun);
         P.add(adjN_fun);
+        
+        P.add(adj_dG_fun);
         
         P.generate();
     cd ..
