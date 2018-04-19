@@ -31,7 +31,7 @@ ncN = settings.ncN;  % No. of constraints at terminal stage
 N  = 40;             % No. of shooting points
 settings.N = N;
 
-N2 = 5;
+N2 = 1;
 settings.N2 = N2;    % No. of horizon length after partial condensing (N2=1 means full condensing)
 
 opt.integrator='ERK4-CASADI'; % 'ERK4','IRK3, 'ERK4-CASADI'
@@ -41,7 +41,7 @@ opt.condensing='default_full';  %'default_full','hpipm_full','no'
 opt.qpsolver='qpoases'; %'qpoases','qore', 'quadprog', 'hpipm_sparse', 'hpipm_pcond'
 
 opt.hotstart='no'; %'yes','no' (only for qpoases)
-opt.shifting='yes'; % 'yes','no'
+opt.shifting='no'; % 'yes','no'
 opt.lin_obj='yes'; % 'yes','no' % if objective function is linear least square
 opt.ref_type=0; % 0-time invariant, 1-time varying(no preview), 2-time varying (preview)
 
@@ -58,7 +58,7 @@ mem = InitMemory(settings, opt, input);
 mem.iter = 1; time = 0.0;
 
 %Tf = 25;  % simulation time
-Tf = 4;  % simulation time
+Tf = 25;  % simulation time
 
 state_sim= [input.x0]';
 controls_MPC = [input.u0]';
@@ -68,7 +68,7 @@ CPT = [];
 ref_traj = [];
 input_u = input.u0';
 if strcmp(settings.model,'ActiveSeat_onlyP')
-    load(['/home/chen/Documents/Packages/MATMPC/data/ActiveSeat_onlyP/activeseatsim.mat']);
+    load(['data/ActiveSeat_onlyP/activeseatsim.mat']);
 end
 while time(end) < Tf
     

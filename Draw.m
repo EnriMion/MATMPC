@@ -470,7 +470,7 @@ switch settings.model
         % load the data you saved
         %load('e:/study/NNID/MATMPC/data/ActiveSeat/AS_REF_DATA');
         
-        load('C:\Users\enrico\Documents\MATLAB\GITLAB\MATMPC\data\ActiveSeat\AS_REF_DATA');
+        load('C:\Users\auto\Documents\MATLAB\MATMPC\data\ActiveSeat\AS_REF_DATA');
         figure
         plot(time(1:end-1),y_sim(:,1))
         hold on; grid on;

@@ -3,9 +3,9 @@
 %addpath(genpath('e:/study/NNID/Active_seat_belt/Nonlinear'));
 
 %cd('e:/study/NNID/Active_seat_belt/Nonlinear');
-addpath(genpath('C:\Users\enrico\Documents\MATLAB\active seat(original)\nonlinear'));
+addpath(genpath('C:\Users\auto\Documents\MATLAB\active seat\nonlinear'));
 
-cd('C:\Users\enrico\Documents\MATLAB\active seat(original)\nonlinear');
+cd('C:\Users\auto\Documents\MATLAB\active seat\nonlinear');
 
 
 %% read data
@@ -240,9 +240,9 @@ data_AS.y_lim_yx_pl = y_lim_yx_pl;
 data_AS.y_lim_zv_pv = y_lim_zv_pv;
 data_AS.y_lim_za_pa = y_lim_za_pa;
 
-save('C:\Users\enrico\Documents\MATLAB\GITLAB\MATMPC\data\ActiveSeat\data_AS.mat','data_AS');
+save('C:\Users\auto\Documents\MATLAB\MATMPC\data\ActiveSeat\data_AS.mat','data_AS');
 
-cd('C:\Users\enrico\Documents\MATLAB\GITLAB\MATMPC');
+cd('C:\Users\auto\Documents\MATLAB\MATMPC');
 % 
 % save('e:/study/NNID/MATMPC/data/ActiveSeat/data_AS.mat','data_AS');
 % 
