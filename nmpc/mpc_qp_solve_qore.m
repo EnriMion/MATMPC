@@ -1,31 +1,24 @@
-function [cpt_qp, mem] = mpc_qp_solve_qore(sizes,mem, opt)
+function [cpt_qp, mem] = mpc_qp_solve_qore(sizes,mem)
 
     nu=sizes.nu;
     nc=sizes.nc;
     ncN=sizes.ncN;
+    nbx=sizes.nbx;
     N=sizes.N; 
-    
-    if strcmp(opt.condensing,'hpipm_full')
-        lb_du = flipud(mem.lb_du);
-        ub_du = flipud(mem.ub_du);
-    else
-        lb_du = mem.lb_du;
-        ub_du = mem.ub_du;
-    end
-           
-    if ~isfield(mem,'qore_id')              
-        [err, mem.qore_id] = QPDenseNew(N*nu, N*nc+ncN);
+               
+    if mem.qore_id==-1            
+        [err, mem.qore_id] = QPDenseNew(N*nu, N*nbx+N*nc+ncN);
         QPDenseSetInt(mem.qore_id, 'prtfreq', -1);
-        QPDenseSetData(mem.qore_id, (mem.Cc)', mem.Hc);
+        QPDenseSetData(mem.qore_id, [mem.Ccx;mem.Ccg]', mem.Hc);
         
         t1 = tic;
-        QPDenseOptimize(mem.qore_id, [lb_du;mem.lcc], [ub_du;mem.ucc], mem.gc);
+        QPDenseOptimize(mem.qore_id, [mem.lb_du;mem.lxc;mem.lcc], [mem.ub_du;mem.uxc;mem.ucc], mem.gc);
         cpt_qp = toc(t1)*1e3;
     else
-        QPDenseUpdateMatrices(mem.qore_id, (mem.Cc)', mem.Hc);
+        QPDenseUpdateMatrices(mem.qore_id, [mem.Ccx;mem.Ccg]', mem.Hc);
         
         t1 = tic;
-        QPDenseOptimize(mem.qore_id, [lb_du;mem.lcc], [ub_du;mem.ucc], mem.gc);
+        QPDenseOptimize(mem.qore_id, [mem.lb_du;mem.lxc;mem.lcc], [mem.ub_du;mem.uxc;mem.ucc], mem.gc);
         cpt_qp = toc(t1)*1e3;
     end
         
@@ -33,6 +26,7 @@ function [cpt_qp, mem] = mpc_qp_solve_qore(sizes,mem, opt)
     dual_sol = QPDenseGetDblVector(mem.qore_id, 'dualsol');
     
     mem.du = reshape(pri_sol(1:N*nu),[nu N]);
+
     mem.mu_u_new = dual_sol(1:N*nu);
     mu_vec = dual_sol(N*nu+1:end);
     
@@ -43,4 +37,11 @@ function [cpt_qp, mem] = mpc_qp_solve_qore(sizes,mem, opt)
     end
             
     Recover(mem, sizes, mu_vec);
+
+%     mem.mu_u_new = -dual_sol(1:N*nu);
+%     mem.mu_x_new = -dual_sol(N*nu+1:N*nu+N*nbx);
+%     mem.mu_new = -dual_sol(N*nu+N*nbx+1:end);
+%                 
+%     Recover(mem, sizes);
+% >>>>>>> upstream/master
 end

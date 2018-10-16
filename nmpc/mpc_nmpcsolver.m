@@ -1,20 +1,26 @@
 function [output, mem] = mpc_nmpcsolver(input, settings, mem, opt)
 
-    tic;
 
-    i=0;
-    KKT = 1e8;
+    mem.sqp_it=0;
+    mem.alpha =1;
+    StopCrit = 2*mem.kkt_lim;
     
     CPT.SHOOT=0;
     CPT.COND=0;
     CPT.QP=0;
-   
-    while(i < mem.sqp_maxit  &&  KKT > mem.kkt_lim ) % RTI or multiple call
+
+    tic;
+  
+    while(mem.sqp_it < mem.sqp_maxit  &&  StopCrit > mem.kkt_lim && mem.alpha>1E-4 ) % RTI or multiple call
         
         %% ----------- QP Preparation
-       
+        
         tshoot = tic;
-        qp_generation(input, settings, mem);
+        if opt.nonuniform_grid
+            qp_generation_ngrid(input, settings, mem);
+        else
+            qp_generation(input, settings, mem);
+        end
         tSHOOT = toc(tshoot)*1e3; 
         
         switch opt.condensing
@@ -26,6 +32,14 @@ function [output, mem] = mpc_nmpcsolver(input, settings, mem, opt)
                 tcond=tic;
                 condensing_hpipm(mem, settings);
                 tCOND=toc(tcond)*1e3;
+            case 'blasfeo_full'
+                tcond=tic;
+                Condensing_Blasfeo(mem, settings);
+                tCOND=toc(tcond)*1e3;
+            case 'partial_condensing'
+                tcond=tic;
+                mem.mem2 = Pcond(mem, settings, mem.mem2, mem.settings2);
+                tCOND=toc(tcond)*1e3;                
             case 'no'
                 tCOND = 0;
         end
@@ -33,19 +47,38 @@ function [output, mem] = mpc_nmpcsolver(input, settings, mem, opt)
         %% ----------  Solving QP
         switch opt.qpsolver
             case 'qpoases'              
-                [tQP,mem] = mpc_qp_solve_qpoases(settings,mem, opt);
-            case 'qore'
-                [tQP,mem] = mpc_qp_solve_qore(settings,mem, opt);
-            case 'quadprog'
+                [tQP,mem] = mpc_qp_solve_qpoases(settings,mem);
+                
+            case 'qpoases_mb'              
+                [tQP,mem] = mpc_qp_solve_qpoases_mb(settings,mem);
+                
+            case 'quadprog_dense'
                 [tQP,mem] = mpc_qp_solve_quadprog(settings,mem);
+                
             case 'hpipm_sparse'               
                 tqp=tic;
-                hpipm_sparse(mem,settings);
+                hpipm_sparse(mem, settings);
                 tQP = toc(tqp)*1e3;
+                
             case 'hpipm_pcond'               
                 tqp=tic;
                 hpipm_pcond(mem,settings);
                 tQP = toc(tqp)*1e3;
+                
+            case 'ipopt_dense'               
+                [tQP,mem] = mpc_qp_solve_ipopt_dense(settings,mem);
+                
+            case 'ipopt_sparse'               
+                [tQP,mem] = mpc_qp_solve_ipopt_sparse(settings,mem);
+                
+            case 'ipopt_partial_sparse'
+                [tQP, mem] = mpc_qp_solve_ipopt_partial_sparse(settings,mem.settings2,mem, mem.mem2);               
+                                
+            case 'osqp_sparse'
+                [tQP, mem] = mpc_qp_solve_osqp(settings,mem);
+                
+            case 'osqp_partial_sparse'
+                [tQP, mem] = mpc_qp_solve_osqp_partial(settings,mem.settings2,mem,mem.mem2);
         end
         
 
@@ -56,6 +89,8 @@ function [output, mem] = mpc_nmpcsolver(input, settings, mem, opt)
         %% ---------- KKT calculation 
         
         [eq_res, ineq_res, KKT] = solution_info(input, settings, mem);
+                
+        StopCrit = max([eq_res, ineq_res, KKT]);
         
         %% ---------- Multiple call management and convergence check
                         
@@ -63,8 +98,8 @@ function [output, mem] = mpc_nmpcsolver(input, settings, mem, opt)
         CPT.COND=CPT.COND+tCOND;
         CPT.QP=CPT.QP+tQP;
         
-        i=i+1;
-        
+        mem.sqp_it=mem.sqp_it+1;
+              
     end
 
     output.info.cpuTime=toc*1e3;   % Total CPU time for the current sampling instant
@@ -73,11 +108,12 @@ function [output, mem] = mpc_nmpcsolver(input, settings, mem, opt)
     output.u=input.u;   
     output.lambda=input.lambda;
     output.mu=input.mu;
-    output.muN=input.muN;
+    output.mu_x=input.mu_x;
     output.mu_u=input.mu_u;
 
-    output.info.iteration_num=i;    
+    output.info.iteration_num=mem.sqp_it;      
     output.info.kktValue=KKT;
+    output.info.OptCrit = StopCrit;
     output.info.eq_res=eq_res;
     output.info.ineq_res=ineq_res;
     output.info.shootTime=CPT.SHOOT;

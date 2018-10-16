@@ -1,11 +1,16 @@
 %% find your path to the original active seat model files
 
+
 %addpath(genpath('e:/study/NNID/Active_seat_belt/Nonlinear'));
 
 %cd('e:/study/NNID/Active_seat_belt/Nonlinear');
 addpath(genpath('C:\Users\auto\Documents\MATLAB\active seat\nonlinear'));
 
 cd('C:\Users\auto\Documents\MATLAB\active seat\nonlinear');
+
+% 
+% addpath(genpath('e:/study/NNID/Active_seat_belt/Nonlinear'));
+% cd('e:/study/NNID/Active_seat_belt/Nonlinear');
 
 
 %% read data
@@ -123,17 +128,17 @@ ncN=0; % No. of general constraints at the terminal point
 nbx = 6; % No. of bounds on states
 nbu = 0; % No. of bounds on controls
 
+% state and control bounds
+nbx_idx = [5,6,14,15,21,26]; % indexs of states which are bounded
+nbu_idx = 0; % indexs of controls which are bounded
+
+%% create variables
 
 import casadi.*
 
 states   = SX.sym('states',nx,1);
 controls = SX.sym('controls',nu,1);
 params   = SX.sym('paras',np,1);
-refs     = SX.sym('refs',ny,1);
-refN     = SX.sym('refs',nyN,1);
-Q        = SX.sym('Q',ny,ny);
-QN       = SX.sym('QN',nyN,nyN);
-
 
 %% Dynamics
 
@@ -202,34 +207,23 @@ h = [C_bar*states + D*controls; y_press; controls(1:6);pressY; accX; velPitch; a
 
 hN = C_bar*states; 
 
-h_fun=Function('h_fun', {states,controls,params}, {h},{'states','controls','params'},{'h'});
-hN_fun=Function('hN_fun', {states,params}, {hN},{'states','params'},{'hN'});
-
 % general inequality constraints
 general_con = [];
 general_con_N = [];
-
-% state and control bounds
-nbx_idx = [5,6,14,15,21,26]; % indexs of states which are bounded
-nbu_idx = 0; % indexs of controls which are bounded
-path_con=general_con;
-path_con_N=general_con_N;
-for i=1:nbx
-    path_con=[path_con;states(nbx_idx(i))];
-    path_con_N=[path_con_N;states(nbx_idx(i))];
-end    
-nc=nc+nbx;
-ncN=ncN+nbx;
-
-% build the function for inequality constraints
-path_con_fun=Function('path_con_fun', {states,controls,params}, {path_con},{'states','controls','params'},{'path_con'});
-path_con_N_fun=Function('path_con_N_fun', {states,params}, {path_con_N},{'states','params'},{'path_con_N'});
 
 
 %% NMPC sampling time [s]
 
 Ts = 0.005; % simulation sample time
 Ts_st = 0.005; % shooting interval time
+
+%% build casadi function (don't touch)
+
+h_fun=Function('h_fun', {states,controls,params}, {h},{'states','controls','params'},{'h'});
+hN_fun=Function('hN_fun', {states,params}, {hN},{'states','params'},{'hN'});
+
+path_con_fun=Function('path_con_fun', {states,controls,params}, {general_con},{'states','controls','params'},{'general_con'});
+path_con_N_fun=Function('path_con_N_fun', {states,params}, {general_con_N},{'states','params'},{'general_con_N'});
 
 %% save your data in the path of your MATMPC
 
@@ -247,5 +241,10 @@ cd('C:\Users\auto\Documents\MATLAB\MATMPC');
 % save('e:/study/NNID/MATMPC/data/ActiveSeat/data_AS.mat','data_AS');
 % 
 % cd('e:/study/NNID/MATMPC');
+% =======
+% save('e:/study/NNID/MATMPC/data/ActiveSeat/data_AS.mat','data_AS');
+%  
+% cd('e:/study/NNID/MATMPC');
+% >>>>>>> upstream/master
 
 clc;
