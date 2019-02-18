@@ -295,6 +295,43 @@ function [input, data] = InitData(settings)
             lb_gN = [];
             ub_gN = [];
             
+        case 'ActiveSeat_onlyP_HP_LP_contact'
+            
+            Wq_t(1) = 100;
+            Wr3_t(1)= 0.1;
+        
+            %% parte comune a tutti i modelli
+            input.u0 = zeros(nu,1);
+            para0 = [0 0 0];
+
+
+            Wq = diag(Wq_t); % diag matrix coi pesi
+            Wr3 = diag(Wr3_t); % diag matrix coi pesi
+            
+            Q = blkdiag(Wq,Wr3);
+            QN = Wq(1:nyN,1:nyN)*0;
+            
+            
+            % upper and lower bounds for states (=nbx)
+            
+            lb_x = [];%-inf(nu,1);
+            ub_x = [];%-lb_x;
+
+            % upper and lower bounds for controls (=nbu)           
+            lb_u = [];
+            ub_u = [];
+                       
+            % upper and lower bounds for general constraints (=nc)
+            lb_g = [];
+            ub_g = [];            
+            lb_gN = [];
+            ub_gN = [];
+
+            flag_hp = 1; %flag for the right pressure reference 1 with filter
+            
+            input.x0 = [0, 0.0001, 0, 0, 0, 0]'; 
+        
+            
     end
 
     % prepare the data
@@ -358,7 +395,13 @@ function [input, data] = InitData(settings)
             
         case 'ActiveSeat'
             data.REF = AS_REF(25,Ts);
-                                                    
+            
+        case 'ActiveSeat_onlyP_HP_LP_contact'
+            cd(['C:\Users\auto\Documents\MATLAB\MATMPC\data\ActiveSeat_onlyP']);
+            data.REF = AS_REF_onlyP(flag_hp);
+            data.PAR = AS_PAR();
+            cd('C:\Users\auto\Documents\MATLAB\MATMPC');
+                                        
         case 'TethUAV_param_1order_slack'
         	data.REF = zeros(1, ny);
       
