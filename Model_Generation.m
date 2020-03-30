@@ -15,7 +15,7 @@ disp('--------------------------------------------------------------------------
 
 %% Insert Model here
 addpath([pwd,'/examples']);
-
+addpath('C:\Users\Enrico\Documents\MATLAB\Casadi')
 settings.model='InvertedPendulum'; % see the folder "examples" for details
 
 run(settings.model);
