@@ -14,8 +14,11 @@ disp( ' ' );
 disp('---------------------------------------------------------------------------------');
 
 %% Insert Model here
-addpath([pwd,'/examples']);
-addpath('C:\Users\Enrico\Documents\MATLAB\Casadi')
+addpath([pwd,'\examples']);
+addpath([userpath,'\Casadi']);
+
+%% settings
+
 settings.model='InvertedPendulum'; % see the folder "examples" for details
 
 run(settings.model);
@@ -78,7 +81,7 @@ else
     vdeFun = Function('vdeFun',{states,controls,params,Sx,Su,alg},{0,0});
     adj_ERK_fun = Function('adj_ERK_fun',{states,controls,params,lambda,alg},{0});
 end
-    
+
 %% objective and constraints
 
 h_fun=Function('h_fun', {states,controls,params}, {h},{'states','controls','params'},{'h'});
@@ -123,10 +126,9 @@ gN_fun=Function('gN_fun',{states,params,refN,QN},{gxN});
 Ci_fun=Function('Ci_fun',{states,controls,params},{Cxi, Cui});
 CN_fun=Function('CN_fun',{states,params},{CxN});
 
-
 dobj = [gxi;gui];
 dobjN = gxN;
-    
+
 Jxb = zeros(nbx,nx+nu);
 for i=1:nbx
     Jxb(i,nbx_idx(i)) = 1.0; 
@@ -179,7 +181,7 @@ if strcmp(generate,'y')
         P.add(vdeFun);
         P.add(adj_ERK_fun);
         P.add(adj_fun);
-        P.add(adjN_fun);       
+        P.add(adjN_fun);
         P.add(impl_f_fun);
         P.add(impl_jac_f_x_fun);
         P.add(impl_jac_f_u_fun);
@@ -200,8 +202,7 @@ if strcmp(generate,'y')
         P.add(Ji_fun);
         P.add(JN_fun);
         P.add(Ci_fun);
-        P.add(CN_fun);
-              
+        P.add(CN_fun);      
         P.generate();
     cd ..
 
