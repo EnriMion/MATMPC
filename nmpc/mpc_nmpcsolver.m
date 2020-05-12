@@ -3,6 +3,7 @@ function [output, mem] = mpc_nmpcsolver(input, settings, mem, opt)
 
     mem.sqp_it=0;
     mem.alpha =1;
+    mem.obj=0;
     StopCrit = 2*mem.kkt_lim;
     
     CPT.SHOOT=0;
@@ -11,7 +12,7 @@ function [output, mem] = mpc_nmpcsolver(input, settings, mem, opt)
 
     tic;
   
-    while(mem.sqp_it < mem.sqp_maxit  &&  StopCrit > mem.kkt_lim && mem.alpha>1E-4 ) % RTI or multiple call
+    while(mem.sqp_it < mem.sqp_maxit  &&  StopCrit > mem.kkt_lim && mem.alpha>1E-8 ) % RTI or multiple call
         
         %% ----------- QP Preparation
         
@@ -19,15 +20,26 @@ function [output, mem] = mpc_nmpcsolver(input, settings, mem, opt)
         if opt.nonuniform_grid
             qp_generation_ngrid(input, settings, mem);
         else
-            qp_generation(input, settings, mem);
+            if strcmp(opt.qpsolver, 'qpoases_mb')
+                qp_generation_mb(input, settings, mem);
+            else
+                qp_generation(input, settings, mem);
+%                 qp_generation_tac(input, settings, mem);
+            end
         end
+      
         tSHOOT = toc(tshoot)*1e3; 
         
         switch opt.condensing
-            case 'default_full'
+            case 'default_full'              
                 tcond=tic;
-                Condensing(mem, settings);
+                if ~strcmp(opt.qpsolver, 'qpoases_mb')
+                    Condensing(mem, settings);
+                else
+                    Condensing_mb(mem, settings);
+                end
                 tCOND=toc(tcond)*1e3;
+                
             case 'hpipm_full'
                 tcond=tic;
                 condensing_hpipm(mem, settings);
@@ -50,7 +62,7 @@ function [output, mem] = mpc_nmpcsolver(input, settings, mem, opt)
                 [tQP,mem] = mpc_qp_solve_qpoases(settings,mem);
                 
             case 'qpoases_mb'              
-                [tQP,mem] = mpc_qp_solve_qpoases_mb(settings,mem);
+                [tQP,mem] = mpc_qp_solve_qpoases_mb(settings,mem, opt);
                 
             case 'quadprog_dense'
                 [tQP,mem] = mpc_qp_solve_quadprog(settings,mem);
@@ -79,16 +91,28 @@ function [output, mem] = mpc_nmpcsolver(input, settings, mem, opt)
                 
             case 'osqp_partial_sparse'
                 [tQP, mem] = mpc_qp_solve_osqp_partial(settings,mem.settings2,mem,mem.mem2);
+                
+            case 'qpalm_cond'
+                [tQP, mem] = mpc_qp_solve_qpalm_cond(settings,mem);
+                
+            case 'qpalm_sparse'
+                [tQP, mem] = mpc_qp_solve_qpalm_sparse(settings,mem);
         end
         
 
         %% ---------- Line search
 
         Line_search(mem, input, settings);
+        
+        %% ---------- CMoN
+%         if mem.iter==1 && mem.sqp_it==0
+%             [mem.rho_cmon, mem.gamma] = CMoN_Init(settings, mem, input);                                   
+%         end  
+%         adaptive_eta(mem,settings);
                 
         %% ---------- KKT calculation 
         
-        [eq_res, ineq_res, KKT] = solution_info(input, settings, mem);
+        [eq_res, ineq_res, KKT, OBJ] = solution_info(input, settings, mem);
                 
         StopCrit = max([eq_res, ineq_res, KKT]);
         
@@ -99,13 +123,14 @@ function [output, mem] = mpc_nmpcsolver(input, settings, mem, opt)
         CPT.QP=CPT.QP+tQP;
         
         mem.sqp_it=mem.sqp_it+1;
-              
+                      
     end
 
     output.info.cpuTime=toc*1e3;   % Total CPU time for the current sampling instant
     
     output.x=input.x;
     output.u=input.u;   
+    output.z=input.z;
     output.lambda=input.lambda;
     output.mu=input.mu;
     output.mu_x=input.mu_x;
@@ -113,6 +138,7 @@ function [output, mem] = mpc_nmpcsolver(input, settings, mem, opt)
 
     output.info.iteration_num=mem.sqp_it;      
     output.info.kktValue=KKT;
+    output.info.objValue=OBJ;
     output.info.OptCrit = StopCrit;
     output.info.eq_res=eq_res;
     output.info.ineq_res=ineq_res;

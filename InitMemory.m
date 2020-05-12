@@ -1,23 +1,23 @@
-function [mem] = InitMemory(settings, opt, input)
+function [mem,input] = InitMemory(settings, opt, input)
 
-    Ts  = settings.Ts;       % Sampling time
-    Ts_st = settings.Ts_st;  % Shooting interval
-    s = settings.s;      % number of integration steps per interval
-    nx = settings.nx;    % No. of states
-    nu = settings.nu;    % No. of controls
-    ny = settings.ny;    % No. of outputs (references)    
-    nyN= settings.nyN;   % No. of outputs at terminal stage 
-    np = settings.np;    % No. of parameters (on-line data)
-    nbx = settings.nbx;  % No. of bounds on states
-    nbu = settings.nbu;  % No. of bounds on controls
+    Ts_st = settings.Ts_st;    % Shooting interval
+    nx    = settings.nx;       % No. of differential states
+    nu    = settings.nu;       % No. of controls
+    nz    = settings.nz;       % No. of algebraic states
+    ny    = settings.ny;       % No. of outputs (references)    
+    nyN   = settings.nyN;      % No. of outputs at terminal stage 
+    np    = settings.np;       % No. of parameters (on-line data)
+    nbx   = settings.nbx;      % No. of bounds on states
+    nbu   = settings.nbu;      % No. of bounds on controls
     nbx_idx = settings.nbx_idx; % indexes of states which are bounded
     nbu_idx = settings.nbu_idx; % indexes of controls which are bounded
-    nc = settings.nc;    % No. of general constraints
-    ncN = settings.ncN;  % No. of general constraints at terminal stage
-    N     = settings.N;             % No. of shooting points
-    N2  = settings.N2;
+    nc    = settings.nc;       % No. of general constraints
+    ncN   = settings.ncN;      % No. of general constraints at terminal stage
+    N     = settings.N;        % No. of shooting points
+    N2    = settings.N2;       % No. of partial condensing blocks
+    r     = settings.r;        % No. of input move blocks
 
-    %% memory
+    %% initialize memory
     mem = struct;
     mem.warm_start=0;
     mem.hot_start=0;
@@ -57,29 +57,16 @@ function [mem] = InitMemory(settings, opt, input)
         mem.mem2.lc = zeros(mem.settings2.nc*N2+ncN,1);
         mem.mem2.uc = zeros(mem.settings2.nc*N2+ncN,1);
         
-%         if strcmp(opt.qpsolver,'hpipm_sparse')
-%             mem.mem2.dx = zeros(nx, N2+1);
-%             mem.mem2.du = zeros(mem.settings2.nu, N2);
-%             mem.mem2.lambda_new = zeros(nx, N2+1);
-%             mem.mem2.mu_u_new = zeros(mem.settings2.nu*N2, 1);
-%             mem.mem2.mu_x_new = zeros(nbx*N2, 1);
-%             mem.mem2.mu_new = zeros(mem.settings2.nc*N2+ncN, 1);
-% 
-%             mem.mem2.mu0=1e2;
-%             mem.mem2.max_qp_it = 100;
-%             mem.mem2.pred_corr = 1;
-%             mem.mem2.cond_pred_corr = 1;
-%             mem.mem2.solver_mode = 1;
-%         end
     end
     
+    % QP solver initialization
     switch opt.qpsolver
         case 'qpoases'   
             mem.qpoases_opt = qpOASES_options('MPC');
 %             mem.qpoases_opt = qpOASES_options('default');
         case 'qpoases_mb'   
-%             mem.qpoases_opt = qpOASES_options('MPC');
-            mem.qpoases_opt = qpOASES_options('default');
+            mem.qpoases_opt = qpOASES_options('MPC');
+%             mem.qpoases_opt = qpOASES_options('default');
         case 'quadprog_dense'
             mem.quadprog_opt.Algorithm = 'interior-point-convex';
             mem.quadprog_opt.Display = 'off';
@@ -301,11 +288,44 @@ function [mem] = InitMemory(settings, opt, input)
             mem.mem2.sparse_A_idx = osqp_A_pattern~=0;
 
             mem.mem2.qp_obj.setup(osqp_H_pattern, [], osqp_A_pattern, -inf(size(osqp_A_pattern,1),1), inf(size(osqp_A_pattern,1),1), mem.mem2.osqp_options);
+            
+        case 'qpalm_sparse'
+            nw = (N+1)*nx+N*nu;
+            neq = (N+1)*nx;
+            nineq = N*nc+ncN;
+                
+            mem.sparse_H = zeros(nw,nw);
+            mem.sparse_g = zeros(nw,1);
+            mem.sparse_dG = zeros(neq,nw);  
+            mem.sparse_dG(1:nx,1:nx) = eye(nx);
+            mem.sparse_minus_eye = -eye(nx);
+            mem.sparse_dB = zeros(nineq,nw);
+            mem.sparse_dBx = zeros(N*nbx,nw);
+            mem.sparse_dBu = zeros(N*nu,nw);
+            mem.sparse_G = zeros(neq,1);
+            mem.sparse_ub = inf(nineq+N*nbx+N*nu,1);
+            mem.sparse_lb = -inf(nineq+N*nbx+N*nu,1);
+            
+            for i=0:N-1
+                for j=1:nbx
+                    mem.sparse_dBx(i*nbx+1:(i+1)*nbx, (i+1)*nx+nbx_idx(j)) = 1;
+                end
+            end
+            mem.sparse_dBu(:,neq+1:end) = eye(N*nu,N*nu);
+            
     end
+    
+    switch opt.hessian
+        case 'Gauss_Newton'
+            mem.hessian=0;
+        case 'Generalized_Gauss_Newton'
+            mem.hessian=1;
+        otherwise
+            error('Please choose a correct Hessian approximation');
+    end
+            
           
     switch opt.integrator
-        case 'ERK4-CASADI'
-            mem.sim_method = 0;
         case 'ERK4'
             mem.sim_method = 1;
             mem.A_tab=[0, 0, 0, 0;
@@ -313,41 +333,83 @@ function [mem] = InitMemory(settings, opt, input)
                        0, 0.5, 0, 0;
                        0, 0, 1, 0];
             mem.B_tab=[1/6, 1/3, 1/3, 1/6];
-            mem.num_steps = s;
+            mem.num_steps = 2;
             mem.num_stages = 4;
             mem.h=Ts_st/mem.num_steps;
             mem.nx = nx;
             mem.nu = nu;
+            mem.nz = nz;
             mem.Sx = eye(nx);
             mem.Su = zeros(nx,nu);
         case 'IRK3'
             mem.sim_method = 2;
+            
+            % Gauss-Legendre
             mem.A_tab=[5/36,             2/9-sqrt(15)/15, 5/36-sqrt(15)/30;
                        5/36+sqrt(15)/24, 2/9            , 5/36-sqrt(15)/24;
                        5/36+sqrt(15)/30, 2/9+sqrt(15)/15, 5/36];
             mem.B_tab=[5/18;4/9;5/18];
-            mem.num_steps = s;
+
+            % Radau IIA
+%             mem.A_tab=[(88-7*sqrt(6))/360,    (296-169*sqrt(6))/1800, (-2+3*sqrt(6))/225;
+%                        (296+169*sqrt(6))/1800, (88+7*sqrt(6))/360     (-2-3*sqrt(6))/225;
+%                        (16-sqrt(6))/36,       (16+sqrt(6))/36,         1/9];
+%             mem.B_tab=[(16-sqrt(6))/36;(16+sqrt(6))/36;1/9];
+            mem.num_steps = 2;
             mem.num_stages = 3;
             mem.h= Ts_st/mem.num_steps;
             mem.nx = nx;
             mem.nu = nu;
+            mem.nz = nz;
             mem.Sx = eye(nx);
             mem.Su = zeros(nx,nu);
             mem.newton_iter = 5;
             mem.JFK = mem.h*[mem.B_tab(1)*eye(nx,nx), mem.B_tab(2)*eye(nx,nx), mem.B_tab(3)*eye(nx,nx)];
+            
+        case 'IRK3-DAE'
+            mem.sim_method = 3;
+            
+            % Radau IIA
+            mem.A_tab=[(88-7*sqrt(6))/360,    (296-169*sqrt(6))/1800, (-2+3*sqrt(6))/225;
+                       (296+169*sqrt(6))/1800, (88+7*sqrt(6))/360     (-2-3*sqrt(6))/225;
+                       (16-sqrt(6))/36,       (16+sqrt(6))/36,         1/9];
+            mem.B_tab=[(16-sqrt(6))/36;(16+sqrt(6))/36;1/9];
+            mem.num_steps = 2;
+            mem.num_stages = 3;
+            mem.h= Ts_st/mem.num_steps;
+            mem.nx = nx;
+            mem.nu = nu;
+            mem.nz = nz;
+            mem.Sx = eye(nx);
+            mem.Su = zeros(nx,nu);
+            mem.newton_iter = 5;
+            mem.JFK = mem.h*[mem.B_tab(1)*eye(nx,nx), zeros(nx,nz), mem.B_tab(2)*eye(nx,nx), zeros(nx,nz), mem.B_tab(3)*eye(nx,nx), zeros(nx,nz)];
         otherwise 
             error('Please choose a correct integrator');       
     end
     
+    if nz>0 && ~strcmp(opt.integrator,'IRK3-DAE')
+        error('Please choose IRK-DAE for DAE systems');
+    end
+    
+    if nz==0 && strcmp(opt.integrator,'IRK3-DAE')
+        error('Please do not choose IRK-DAE for ODE systems');
+    end
+    
     % globalization
-    mem.sqp_maxit = 1;           % maximum number of iterations for each sampling instant (for RTI, this is ONE)
-    mem.kkt_lim = 1e-4;          % tolerance on optimality
+    if strcmp(opt.RTI,'yes')
+        mem.sqp_maxit=1;         % use RTI
+    else       
+        mem.sqp_maxit = 50;      % maximum number of iterations for each sampling instant
+    end
+    mem.kkt_lim = 1e-2;          % tolerance on optimality
     mem.mu_merit=0;              % initialize the parameter
     mem.eta=1e-4;                % merit function parameter
     mem.tau=0.8;                 % step length damping factor
     mem.mu_safty=1.1;            % constraint weight update factor (for merit function)
     mem.rho=0.5;                 % merit function parameter
     mem.alpha=1;                 % default step length
+    mem.obj=0;
     
     % allocate memory
     mem.A = zeros(nx,nx*N);
@@ -376,19 +438,38 @@ function [mem] = InitMemory(settings, opt, input)
     mem.lxc = zeros(N*nbx,1);
     mem.uxc = zeros(N*nbx,1);
     
-    if strcmp(opt.qpsolver,'qpoases_mb')
-        mem.r = 6;
-        T = zeros(N,mem.r);
-        index = [0,1,2,10,30,50,N]; % starts from 0, of length r+1
-        for i=1:mem.r
-            T(index(i)+1:index(i+1),i)=1;
-        end
-        mem.T = kron(T, eye(nu));
-
+    if strcmp(opt.qpsolver, 'qpoases_mb')
+        mem.r = r;
+        mem.index_T = [0, 1, 3, 6, 10, 15, 20, 35, 50, 65, 80];
+%         mem.index_T = [0, 1, 10, 50];
+%         mem.index_T = [0 1 3 5 7 10 13 16 19 22 25 28 31 35 40 45 50];
         mem.Hc_r = zeros(mem.r*nu,mem.r*nu);
         mem.Ccx_r = zeros(N*nbx,mem.r*nu);
         mem.Ccg_r = zeros(N*nc+ncN,mem.r*nu);
         mem.gc_r = zeros(mem.r*nu,1);
+        mem.L = zeros(mem.r,1);
+        mem.Gr = zeros(N*nx,mem.r*nu);
+        T = zeros(N,mem.r);
+        for i=1:mem.r
+            T(mem.index_T(i)+1:mem.index_T(i+1),i)=1;
+        end
+        mem.T = kron(T, eye(nu));
+    end
+    
+    if opt.nonuniform_grid
+        mem.r = r;
+        mem.index_T = [0, 1:1:40,42:2:80];
+        for ii=1:size(input.W,1)
+            input.W(ii,:)=input.W(ii,:).*diff(mem.index_T(1:end));
+          %  input.W(ii,41)=input.W(ii,41)*0.5;
+%         mem.index_T = [0, 1, 10, 50];
+%         mem.index_T = [0 1 3 5 7 10 13 16 19 22 25 28 31 35 40 45 50];
+        end
+        T = zeros(N,mem.r);
+        for i=1:mem.r
+            T(mem.index_T(i)+1:mem.index_T(i+1),i)=1;
+        end
+        mem.T = kron(T, eye(nu));
     end
     
     mem.dx = zeros(nx,N+1);
@@ -397,6 +478,7 @@ function [mem] = InitMemory(settings, opt, input)
     mem.mu_new = zeros(N*nc+ncN,1);
     mem.mu_x_new = zeros(N*nbx,1);
     mem.mu_u_new = zeros(N*nu,1);
+    mem.z_out = zeros(nz,N);
     
     mem.q_dual = zeros(nx,N+1);
     mem.dmu = zeros(N*nu+N*nbx+N*nc+ncN,1);
@@ -405,73 +487,48 @@ function [mem] = InitMemory(settings, opt, input)
         mem.Cx(i,nbx_idx(i)) = 1.0;
     end
     
-    if strcmp(opt.lin_obj,'yes')
-        mem.lin_obj = 1;
-        
-        [Jx, Ju] = Ji_fun('Ji_fun',zeros(nx,1),zeros(nu,1),zeros(np,1),zeros(ny,1), input.W(:,1));
-        Qi = full(Jx'*Jx);
-        for i=1:nx
-            if Qi(i,i)<1e-12
-                Qi(i,i)=1e-12;
-            end
-        end
-        Si = full(Jx'*Ju);
-        Ri = full(Ju'*Ju);
-        mem.Q = repmat(Qi,1,N+1);
-        mem.S = repmat(Si,1,N);
-        mem.R = repmat(Ri,1,N);
-        
-        JN = JN_fun('JN_fun',zeros(nx,1),zeros(np,1),zeros(nyN,1), input.WN);
-        Qf = full(JN'*JN);
-        for i=1:nx
-            if Qf(i,i)<1e-12
-                Qf(i,i)=1e-12;
-            end
-        end
-        mem.Q(:,N*nx+1:end) = Qf;
-    else
-        mem.lin_obj = 0;
-        mem.Q = zeros(nx,nx*(N+1));
-        mem.S = zeros(nx,nu*N);
-        mem.R = zeros(nu,nu*N);
-    end
-    mem.reg = 1e-12;
-              
+    mem.reg = 1e-8;
+    
+    mem.Q = zeros(nx,nx*(N+1));
+    mem.S = zeros(nx,nu*N);
+    mem.R = zeros(nu,nu*N);
+                      
     mem.iter=1;
     
-     %% for CMON-RTI	
-    mem.F_old = zeros(nx,N);	
-    mem.CMON_pri = zeros(N,1);	
-    mem.CMON_dual = zeros(N,1);	
-    mem.q_dual = zeros(nx,N+1);	
-    mem.V_pri = zeros(nx,N);
-    mem.V_dual = zeros(nx+nu,N);
-    mem.dmu = zeros(N*nu+N*nbx+N*nc+ncN,1);
-    mem.threshold_pri = 0;	
-    mem.threshold_dual = 0;	
-    mem.tol=0;	
-    mem.perc=100;
-    mem.idxc=zeros(N,1);
-    
-    mem.tol_abs=5e-1;
-    mem.tol_ref=5e-1;  	       
-    mem.alpha_cmon = 1;      
-    mem.beta_cmon = 1;        
-    mem.c1 = 0.1;
-    mem.gamma = 0;	
-    mem.rho_cmon = 0;
-          
-    mem.local = 0;
-    
-    mem.rho_ratio=[];
-    mem.gamma_ratio=[];
-    
-    mem.r_ratio=[];
-    
-    mem.shift_x = zeros(nx,N+1);
-    mem.shift_u = zeros(nu,N);
-    
-    mem.Ns=25;
+     %% for CMON-RTI
+     
+%     mem.F_old = zeros(nx,N);	
+%     mem.CMON_pri = zeros(N,1);	
+%     mem.CMON_dual = zeros(N,1);	
+%     mem.q_dual = zeros(nx,N+1);	
+%     mem.V_pri = zeros(nx,N);
+%     mem.V_dual = zeros(nx+nu,N);
+%     mem.dmu = zeros(N*nu+N*nbx+N*nc+ncN,1);
+%     mem.threshold_pri = 0;	
+%     mem.threshold_dual = 0;	
+%     mem.tol=0;	
+%     mem.perc=100;
+%     mem.idxc=zeros(N,1);
+%     
+%     mem.tol_abs=1e-1;
+%     mem.tol_ref=1e-1;  	       
+%     mem.alpha_cmon = 1;      
+%     mem.beta_cmon = 1;        
+%     mem.c1 = 0.1;
+%     mem.gamma = 0;	
+%     mem.rho_cmon = 0;
+%           
+%     mem.local = 0;
+%     
+%     mem.rho_ratio=[];
+%     mem.gamma_ratio=[];
+%     
+%     mem.r_ratio=[];
+%     
+%     mem.shift_x = zeros(nx,N+1);
+%     mem.shift_u = zeros(nu,N);
+%     
+%     mem.Ns=25;
        
 end
 

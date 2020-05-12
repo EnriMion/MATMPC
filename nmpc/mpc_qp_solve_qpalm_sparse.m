@@ -1,4 +1,4 @@
-function [cpt_qp, mem] = mpc_qp_solve_osqp(sizes,mem)
+function [cpt_qp, mem] = mpc_qp_solve_qpalm_sparse(sizes,mem)
     
     N=sizes.N;  
     nbx=sizes.nbx;
@@ -15,10 +15,13 @@ function [cpt_qp, mem] = mpc_qp_solve_osqp(sizes,mem)
     l = [-mem.sparse_G; mem.sparse_lb];
     u = [-mem.sparse_G; mem.sparse_ub];
         
-    v_H = mem.sparse_H(mem.sparse_H_idx);
-    v_A = A(mem.sparse_A_idx);
-    mem.qp_obj.update('Px',v_H,'Ax',v_A,'q',mem.sparse_g,'l',l,'u',u);    
-    sol = mem.qp_obj.solve();
+    mem.qpalm_solver=qpalm;
+    mem.qpalm_settings=mem.qpalm_solver.default_settings();
+
+    mem.qpalm_solver.setup(mem.sparse_H,mem.sparse_g, A, l, u, ...
+            [reshape(mem.dx,[(N+1)*nx,1]);reshape(mem.du,[N*nu,1])], [reshape(mem.lambda_new,[neq,1]);mem.mu_u_new;mem.mu_x_new;mem.mu_new], mem.qpalm_settings); 
+    S = 'mem.qpalm_solver.solve()';
+    [T,sol] = evalc(S);
             
     assert(strcmp(sol.info.status,'solved'), ['QP Error: ' sol.info.status]);
 
@@ -31,5 +34,7 @@ function [cpt_qp, mem] = mpc_qp_solve_osqp(sizes,mem)
     mem.mu_new(:) = sol.y(neq+N*nu+N*nbx+1:end,1);
     
     cpt_qp   = sol.info.run_time*1e3;
+    
+    mem.qpalm_solver.delete();
                
 end
