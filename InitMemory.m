@@ -1,4 +1,4 @@
-function [mem] = InitMemory(settings, opt, input)
+function [mem,input] = InitMemory(settings, opt, input)
 
     Ts_st = settings.Ts_st;    % Shooting interval
     nx    = settings.nx;       % No. of differential states
@@ -458,9 +458,13 @@ function [mem] = InitMemory(settings, opt, input)
     
     if opt.nonuniform_grid
         mem.r = r;
-        mem.index_T = [0, 1, 3, 6, 10, 15, 20, 35, 50, 65, 80];
+        mem.index_T = [0, 1:1:40,42:2:80];
+        for ii=1:size(input.W,1)
+            input.W(ii,:)=input.W(ii,:).*diff(mem.index_T(1:end));
+          %  input.W(ii,41)=input.W(ii,41)*0.5;
 %         mem.index_T = [0, 1, 10, 50];
 %         mem.index_T = [0 1 3 5 7 10 13 16 19 22 25 28 31 35 40 45 50];
+        end
         T = zeros(N,mem.r);
         for i=1:mem.r
             T(mem.index_T(i)+1:mem.index_T(i+1),i)=1;
